@@ -1,0 +1,24 @@
+---
+
+maas_dns_domain: maas.local
+
+maas_adminusers:
+  - username: 'root'
+    email: 'root@{{ maas_dns_domain }}'
+    password: 'r00tm3'
+
+maas_repo: 'ppa:maas/stable'
+maas_multinode: false
+
+maas_region_controller: '127.0.0.1'
+maas_region_controller_url: 'http://{{ maas_region_controller }}:5240/MAAS'
+
+# KVM related variables. Used if `maas_kvm_setup` is set to `true`
+#kvm_phys_interface: eth0
+maas_kvm_setup: true
+maas_kvm_bridge_interface: virbr0
+maas_kvm_net_ipv4:
+  name: private2
+  address: 192.168.10.1
+  netmask: 255.255.255.0
+  network: 192.168.10.0

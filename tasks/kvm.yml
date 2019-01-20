@@ -1,0 +1,78 @@
+---
+
+# Include OS-specific variables.
+- name: Load a variable file based on the OS type, or a default if not found. Using free-form to specify the file.
+  include_vars: "{{ item }}"
+  with_first_found:
+    - "{{ ansible_distribution | lower }}{{ ansible_lsb.major_release }}.yml"
+    - "{{ ansible_distribution | lower }}{{ ansible_distribution_major_version }}.yml"
+    
+- name: Ensure kvm packages are present
+  apt:
+    name: ['qemu-kvm', 'libvirt-bin', 'bridge-utils', 'python-libvirt', 'python-lxml']
+    state: present
+
+- name: Setup maas user for kvm ssh connections
+  user:
+    generate_ssh_key: yes
+    name: maas
+    append: yes
+    shell: /bin/bash
+    groups: "{{ maas_kvm_libvirt_group }}"
+  retries: 3
+  delay: 3
+  until: 
+
+- name: Ensure ssh to localhost
+  copy: 
+    remote_src: yes
+    src: /var/lib/maas/.ssh/id_rsa.pub
+    dest: /var/lib/maas/.ssh/authorized_keys
+    owner: maas
+    mode: preserve
+
+- name: Remove default nat network
+  virt_net:
+    name: default
+    state: absent
+
+- name: Define libvirt network
+  virt_net:
+    name: "{{ maas_kvm_net_ipv4.name }}"
+    command: define
+    xml: '{{ lookup("template", "../templates/virsh_isloated_net.xml.j2")}}'
+
+- name: start libvirt network
+  virt_net:
+    name: "{{ maas_kvm_net_ipv4['name'] }}"
+    state: active   
+    autostart: yes
+
+- name: Ensure storage pool directory
+  file:
+    state: directory
+    path: /var/lib/virt/vms
+    owner: maas
+
+- name: Create file system based storage pool for libvirt
+  virt_pool:
+    command: define
+    name: vms
+    xml: '{{ lookup("template", "../templates/virsh_storage_pool.xml.j2")}}'
+
+- name: Start storage pool
+  virt_pool:
+    name: vms
+    state: active
+    autostart: yes
+
+- name: register apikey for {{ maas_adminusers[0].username }}
+  slurp: 
+    src: /var/lib/maas/.{{ maas_adminusers[0].username }}_apikey
+  register: apikey
+
+- name: Login to maas API as {{ maas_adminusers[0].username }}
+  command: maas login root http://{{ ansible_default_ipv4.address }}:5240/MAAS/ {{ apikey['content'] | b64decode  }}
+
+- name: Create KVM Pod for testing purposes if kvm is enabled
+  command: maas {{ maas_adminusers[0].username }} pods create type=virsh power_address=qemu+ssh://maas@{{ ansible_default_ipv4.address }}/system name=dev-pod 

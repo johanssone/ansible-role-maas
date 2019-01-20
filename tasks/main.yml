@@ -1,0 +1,101 @@
+---
+
+- name: Install | Ensure maas repo is present
+  apt_repository:
+    repo: "{{ maas_repo }}"
+    state: present
+
+- name: Install | Ensure MaaS packages are present
+  apt:
+    name: maas
+    state: present
+  when: not maas_multinode
+
+- name: Install | Check if admin account bootstrap is needed
+  stat:
+    path: "/etc/maas/.admin_account_created"
+  register: "maas_admin_account_check"
+
+- name: Install | Ensure admin account bootstrapped
+  command: "maas createadmin --username {{ item.username }} --email {{ item.email }} --password {{ item.password }}"
+  register: "maas_admin_account_created"
+  no_log: yes
+  with_items: '{{ maas_adminusers }}'
+  when: >
+        (not maas_multinode and
+        not maas_admin_account_check.stat.exists) or
+        (maas_multinode and
+          not maas_admin_account_check.stat.exists and
+          inventory_hostname in groups['maas_region_controller'])
+
+- name: Install | Ensure Admin bootstrap done file.
+  file:
+    path: "/etc/maas/.admin_account_created"
+    state: "touch"
+  when: maas_admin_account_created.changed
+
+# Configuration 
+- name: Config | Configure MAAS Region Controller
+  lineinfile:
+    dest: "/etc/maas/regiond.conf"
+    regexp: "^maas_url:"
+    line: "maas_url: {{ maas_region_controller_url | default('127.0.0.1') }}"
+  notify: "restart maas-regiond"
+  when: >
+        not maas_multinode or
+        (not maas_multinode and
+          inventory_hostname in groups['maas_region_controller'])
+
+- name: Config | Setting MAAS Region Controller
+  set_fact:
+    maas_region_controller_host: "{{ groups['maas_region_controller'][0] }}"
+  when: >
+        maas_multinode
+
+- name: Config | Capture MaaS region controller secret
+  command: "cat /var/lib/maas/secret"
+  register: "maas_region_controller_secret_raw"
+  no_log: true
+  when: >
+        maas_multinode and
+        inventory_hostname == maas_region_controller_host
+
+- name: Config | Setting MAAS Region Controller Secret Fact
+  set_fact:
+    maas_region_controller_secret: '{{ maas_region_controller_secret_raw.stdout }}'
+  when: >
+        maas_multinode and
+        inventory_hostname == maas_region_controller_host
+
+- name: Config | Check if rack controller is registered with region controller
+  stat:
+    path: "/etc/maas/.controller_registered"
+  register: "maas_controller_registered"
+  when: >
+        maas_multinode and
+        inventory_hostname in groups['maas_rack_controller']
+
+- name: Config | Setting MaaS region controller secret
+  set_fact:
+    maas_region_controller_secret: "{{ hostvars[maas_region_controller_host]['maas_region_controller_secret'] }}"
+  when: >
+        maas_multinode and
+        inventory_hostname in groups['maas_rack_controller']
+
+- name: Config | Register rack controller to region controller
+  command: "maas-rack register --url {{ maas_region_controller_url }} --secret {{ maas_region_controller_secret }}"
+  when: >
+        maas_multinode and
+        inventory_hostname in groups['maas_rack_controller'] and
+        not maas_controller_registered.stat.exists
+
+- name: Generate initial API keys for admin users
+  shell: maas-region apikey --username={{item.username}} > /var/lib/maas/.{{item.username}}_apikey
+  no_log: yes
+  args:
+    creates: /var/lib/maas/.{{item.username}}_apikey
+  with_items: "{{ maas_adminusers }}"
+
+# Extra 
+- include: kvm.yml
+  when: maas_kvm_setup

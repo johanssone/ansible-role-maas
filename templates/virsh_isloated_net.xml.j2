@@ -1,0 +1,5 @@
+<network>
+  <name>{{ maas_kvm_net_ipv4['name'] }}</name>
+  <bridge name="{{ maas_kvm_bridge_interface }}"/>
+  <ip address="{{ maas_kvm_net_ipv4['address'] }}" netmask="{{ maas_kvm_net_ipv4['netmask'] }}"></ip>
+</network>

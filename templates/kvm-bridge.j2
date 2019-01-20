@@ -1,0 +1,8 @@
+auto {{ maas_kvm_bridge_interface }}
+iface {{ maas_kvm_bridge_interface }} inet static
+
+{% for item in maas_kvm_bridge_ipv4 %}
+{%   for k,v in item.iteritems() %}
+{{ k }} {{ v }} 
+{%   endfor %}
+{% endfor %}
