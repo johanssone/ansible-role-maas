@@ -1,5 +1,10 @@
 pipeline {
-  agent any
+  agent {
+    node {
+      label 'ubuntu1604'
+    }
+
+  }
   stages {
     stage('test') {
       parallel {
